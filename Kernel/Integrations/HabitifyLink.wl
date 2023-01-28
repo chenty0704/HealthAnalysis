@@ -4,7 +4,8 @@ HabitifyConnect::usage = UsageString@"HabitifyConnect[`key`] creates a connectio
 
 HabitifyDisconnect::usage = UsageString@"HabitifyDisconnect[] disconnects from Habitify.";
 
-HabitifyExecute::usage = UsageString@"HabitifyExecute[`req`, {`par_1` -> `val_1`, ...}] executes `req` with the specified settings for parameters.";
+HabitifyExecute::usage = UsageString@"HabitifyExecute[`req`] executes `req` on Habitify.
+HabitifyExecute[`req`, {`par_1` -> `val_1`, ...}] executes `req` with the specified settings for parameters.";
 
 Begin["`Private`"];
 
@@ -15,30 +16,46 @@ HabitifyDisconnect[] := Remove@LocalSymbol["HabitifyAPIKey"];
 auth := <|"Headers" -> <|"Authorization" -> LocalSymbol["HabitifyAPIKey"]|>|>;
 
 habitID[name_String] := Module[{data},
-    If[MissingQ@PersistentSymbol["HabitList"],
-        data = URLExecute["https://api.habitify.me/habits", "RawJSON", Authentication -> auth]["data"];
-        PersistentSymbol["HabitList", PersistenceTime -> Quantity[1, "Days"]] =
-                Association @@ Table[habit["name"] -> habit["id"], {habit, data}];
-    ];
-    Return@PersistentSymbol["HabitList"][name];
+    data = URLExecute["https://api.habitify.me/habits", "RawJSON", Authentication -> auth]["data"];
+    data = Association @@ Table[habit["name"] -> habit["id"], {habit, data}];
+    Return@data[name];
+];
+
+HabitifyExecute["HabitList"] := Module[{data},
+    data = URLExecute["https://api.habitify.me/habits", "RawJSON", Authentication -> auth]["data"];
+    Return@Sort@Table[habit["name"], {habit, Select[data, !#["is_archived"] &]}];
 ];
 
 HabitifyExecute["HabitEventSeries", {
     "Name" -> name_String,
-    "FirstDate" -> firstDate_,
-    "LastDate" -> lastDate_
+    "FirstDate" -> DateObject[firstDate_, "Day"],
+    "LastDate" -> DateObject[lastDate_, "Day"]
 }] := Module[{data},
     data = URLExecute["https://api.habitify.me/logs/" ~~ habitID[name], {
-        "from" -> DateString[DateObject[firstDate, "Day"], {"ISODateTime", "ISOTimeZone"}],
+        "from" -> DateString[firstDate, {"ISODateTime", "ISOTimeZone"}],
         "to" -> DateString[NextDate[lastDate, "Day"], {"ISODateTime", "ISOTimeZone"}]
     }, "RawJSON", Authentication -> auth]["data"];
-    Return@EventSeries@Table[{
+    Return@TimeSeriesResample[EventSeries@Table[{
         DateObject[FromDateString@log["created_date"], "Day"],
         Switch[log["unit_type"],
             "rep", log["value"],
             "min", Quantity[log["value"], "Minutes"]
         ]
-    }, {log, data}];
+    }, {log, data}], {firstDate, lastDate, "Day"}];
+];
+
+HabitifyExecute["MoodEventSeries", {
+    "FirstDate" -> DateObject[firstDate_, "Day"],
+    "LastDate" -> DateObject[lastDate_, "Day"]
+}] := Module[{dates, values, data},
+    dates = DayRange[firstDate, lastDate];
+    values = Table[(
+        data = URLExecute["https://api.habitify.me/moods", {
+            "target_date" -> DateString[date, {"ISODateTime", "ISOTimeZone"}]
+        }, "RawJSON", Authentication -> auth]["data"];
+        If[Length[data] > 0, Mean[Table[log["value"], {log, data}]], Missing[]]
+    ), {date, dates}];
+    Return@EventSeries[values, {dates}];
 ];
 
 End[];
