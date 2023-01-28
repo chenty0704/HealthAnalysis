@@ -1,8 +1,8 @@
-BeginPackage["HealthAnalysis`"];
+Get["HealthAnalysis`Links`HabitifyLink`"];
+
+BeginPackage["HealthAnalysis`", {"Utilities`"}];
 
 Begin["`Private`"];
-
-Get["HealthAnalysis`Integrations`HabitifyLink`"];
 
 End[];
 
